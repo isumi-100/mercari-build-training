@@ -12,6 +12,8 @@ var errImageNotFound = errors.New("image not found")
 type Item struct {
 	ID   int    `db:"id" json:"-"`
 	Name string `db:"name" json:"name"`
+	Category string `db:"category" json:"category"`
+	Image string `json:"image_name"`
 }
 
 // Please run `go generate ./...` to generate the mock implementation
