@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -48,8 +49,8 @@ func (s Server) Run() int {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", h.Hello)
 	mux.HandleFunc("POST /items", h.AddItem)
-	mux.HandleFunc("GET /items", h.GetItem)
-	mux.HandleFunc("GET /items/{item_id}", h.GetItemId)
+	mux.HandleFunc("GET /items", h.GetItems)
+	mux.HandleFunc("GET /items/{item_id}", h.GetItem)
 	mux.HandleFunc("GET /images/{filename}", h.GetImage)
 
 	// start the server
@@ -121,8 +122,12 @@ func parseAddItemRequest(r *http.Request) (*AddItemRequest, error) {
 		// STEP 4-2: add a category field
 		Category: r.FormValue("category"),
 	}
-
 	// STEP 4-4: add an image field
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		return nil, errors.New("image is required")
+	}
+	defer file.Close()
 
 	// validate the request
 	if req.Name == "" {
@@ -134,13 +139,17 @@ func parseAddItemRequest(r *http.Request) (*AddItemRequest, error) {
 		return nil, errors.New("category is required")
 	}
 	// STEP 4-4: validate the image field
+	imageData, err := io.ReadAll(file)
+	if err != nil {
+		return nil, errors.New("failed to read image data")
+	}
+	req.Image = imageData
 	return req, nil
 }
 
 // AddItem is a handler to add a new item for POST /items .
 func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
-	// ctx := r.Context()
-
+	ctx := r.Context()
 	req, err := parseAddItemRequest(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -149,12 +158,12 @@ func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
 
 	// STEP 4-4: uncomment on adding an implementation to store an image
 	fileName, err := s.storeImage(req.Image)
+	slog.Info("Stored image", "fileName", fileName)
 	if err != nil {
 		slog.Error("failed to store image: ", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	items := &Item{
 		Name: req.Name,
 		// STEP 4-2: add a category field
@@ -162,14 +171,24 @@ func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
 		// STEP 4-4: add an image field
 		Image: fileName,
 	}
+	// データベースに保存
+	err = s.itemRepo.Insert(ctx, items)
+	if err != nil {
+    	slog.Error("failed to store item", "error", err)
+    	http.Error(w, err.Error(), http.StatusInternalServerError)
+    	return
+	}
+
+	// レスポンスを送信
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(map[string]interface{}{"items": items})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+    	slog.Error("failed to encode response", "error", err)
+    	http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 // GetItems is a handler to return a list of items for GET /items.
-func (s *Handlers) GetItem(w http.ResponseWriter, r *http.Request) {
+func (s *Handlers) GetItems(w http.ResponseWriter, r *http.Request) {
 	items, err := LoadItems("items.json")
 	if err != nil {
 		slog.Error("failed to load items: ", "error", err)
@@ -184,7 +203,7 @@ func (s *Handlers) GetItem(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Handlers) GetItemId(w http.ResponseWriter, r *http.Request) {
+func (s *Handlers) GetItem(w http.ResponseWriter, r *http.Request) {
 	// 1. "item_id" を取得
     itemIDStr := r.PathValue("item_id")
     itemID, err := strconv.Atoi(itemIDStr)//整数に変換
@@ -201,7 +220,7 @@ func (s *Handlers) GetItemId(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to load items", http.StatusInternalServerError)
 		return
 	}
-	if itemID < 0 || itemID > len(items) {//配列の範囲外チェック
+	if itemID <= 0 || itemID > len(items) {//配列の範囲外チェック
         http.Error(w, "Item not found", http.StatusNotFound)
         return
     }
@@ -222,14 +241,13 @@ func (s *Handlers) GetItemId(w http.ResponseWriter, r *http.Request) {
 // and stores it in the image directory.
 func (s *Handlers) storeImage(image []byte) (filePath string, err error) {
 	// STEP 4-4: add an implementation to store an image
-	// TODO:
 	// - calc hash sum
 	hasher := sha256.New()
 	hasher.Write(image) // image をハッシュに書き込む
 	hashSum := hex.EncodeToString(hasher.Sum(nil)) // ハッシュ値を16進文字列に変換
 	// - build image file path
 	fileName := fmt.Sprintf("%s.jpg", hashSum)
-	filePath = filepath.Join("images", fileName)
+	filePath = filepath.Join(s.imgDirPath, fileName)
 	// - check if the image already exists
 	if _, err := os.Stat(filePath); err == nil {
 		return filePath, nil
@@ -246,8 +264,7 @@ func (s *Handlers) storeImage(image []byte) (filePath string, err error) {
 		return "", fmt.Errorf("failed to write image file: %w", err)
 	}
 	// - return the image file path
-	return filePath, nil
-	// return
+	return fileName, nil
 }
 
 type GetImageRequest struct {
