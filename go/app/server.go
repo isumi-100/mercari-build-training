@@ -87,23 +87,6 @@ type ItemsWrapper struct {
     Items []Item `json:"items"`
 }
 
-func LoadItems(filePath string) ([]Item, error) {
-    file, err := os.Open(filePath)
-    if err != nil {
-        slog.Error("Failed to open items.json", "path", filePath, "error", err)
-        return nil, err
-    }
-    defer file.Close()
-
-    var wrapper ItemsWrapper
-    if err := json.NewDecoder(file).Decode(&wrapper); err != nil {
-        slog.Error("Failed to decode items.json", "path", filePath, "error", err)
-        return nil, err
-    }
-
-    return wrapper.Items, nil
-}
-
 type AddItemRequest struct {
 	Name string `form:"name"`
 	// Category string `form:"category"` // STEP 4-2: add a category field
@@ -181,7 +164,7 @@ func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
 
 	// レスポンスを送信
 	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(map[string]interface{}{"items": items})
+	err = json.NewEncoder(w).Encode(items)
 	if err != nil {
     	slog.Error("failed to encode response", "error", err)
     	http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -189,7 +172,8 @@ func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
 }
 // GetItems is a handler to return a list of items for GET /items.
 func (s *Handlers) GetItems(w http.ResponseWriter, r *http.Request) {
-	items, err := LoadItems("items.json")
+	ctx := r.Context()
+	items, err := s.itemRepo.LoadItems(ctx)
 	if err != nil {
 		slog.Error("failed to load items: ", "error", err)
 		http.Error(w, "Failed to load items", http.StatusInternalServerError)
@@ -214,7 +198,8 @@ func (s *Handlers) GetItem(w http.ResponseWriter, r *http.Request) {
     slog.Info("Received item_id:", "item_id", itemID)
 
 	//2. itemを取得
-	items, err := LoadItems("items.json")
+	ctx := r.Context()
+	items, err := s.itemRepo.LoadItems(ctx)
 	if err != nil {
 		slog.Error("failed to load items: ", "error", err)
 		http.Error(w, "Failed to load items", http.StatusInternalServerError)
@@ -224,8 +209,8 @@ func (s *Handlers) GetItem(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Item not found", http.StatusNotFound)
         return
     }
-	leni := len(items)
-	slog.Info("items_length", "length", leni)
+	// leni := len(items)
+	// slog.Info("items_length", "length", leni)
 	item := items[itemID-1]
 	// JSONレスポンスを返す
 	w.Header().Set("Content-Type", "application/json")
