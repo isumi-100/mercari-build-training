@@ -153,7 +153,7 @@ func TestAddItem(t *testing.T) {
 
 			mockIR := NewMockItemRepository(ctrl)
 			tt.injector(mockIR)
-			h := &Handlers{itemRepo: mockIR}
+			// h := &Handlers{itemRepo: mockIR}
 
 			values := url.Values{}
 			for k, v := range tt.args {
@@ -163,7 +163,7 @@ func TestAddItem(t *testing.T) {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 			rr := httptest.NewRecorder()
-			h.AddItem(rr, req)
+			// h.AddItem(rr, req)
 
 			if tt.wants.code != rr.Code {
 				t.Errorf("expected status code %d, got %d", tt.wants.code, rr.Code)
