@@ -233,6 +233,8 @@ func (s *Handlers) storeImage(image []byte) (filePath string, err error) {
 	hashSum := hex.EncodeToString(hasher.Sum(nil)) // ハッシュ値を16進文字列に変換
 	// - build image file path
 	fileName := fmt.Sprintf("%s.jpg", hashSum)
+	// fmt.Println("Generated fileName:", fileName)
+
 	filePath = filepath.Join(s.imgDirPath, fileName)
 	// - check if the image already exists
 	if _, err := os.Stat(filePath); err == nil {
@@ -250,6 +252,8 @@ func (s *Handlers) storeImage(image []byte) (filePath string, err error) {
 		return "", fmt.Errorf("failed to write image file: %w", err)
 	}
 	// - return the image file path
+	// fmt.Println("Generated fileName:", fileName)
+
 	return fileName, nil
 }
 
@@ -262,12 +266,10 @@ func parseGetImageRequest(r *http.Request) (*GetImageRequest, error) {
 	req := &GetImageRequest{
 		FileName: r.PathValue("filename"), // from path parameter
 	}
-
 	// validate the request
 	if req.FileName == "" {
 		return nil, errors.New("filename is required")
 	}
-
 	return req, nil
 }
 

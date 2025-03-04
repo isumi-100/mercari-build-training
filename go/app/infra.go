@@ -49,7 +49,12 @@ func NewItemRepository() ItemRepository {
 	return &itemRepository{db: db}
 }
 func (i *itemRepository) LoadItems(ctx context.Context) ([]*Item, error) {
-	rows, err := i.db.QueryContext(ctx, "SELECT id, name, category, image_name FROM items")
+	query := `
+        SELECT items.id, items.name, categories.name, items.image_name 
+        FROM items 
+        JOIN categories ON items.category_id = categories.id
+    `
+	rows, err := i.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -68,12 +73,25 @@ func (i *itemRepository) LoadItems(ctx context.Context) ([]*Item, error) {
 }
 // Insert inserts an item into the repository.
 func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
-	// STEP 4-1: add an implementation to store an item
-	// SQLクエリを実行
-	_, err := i.db.ExecContext(ctx,
-		"INSERT INTO items (name, category, image_name) VALUES (?, ?, ?)",
-		item.Name, item.Category, item.Image)
+	var categoryID int
+	err := i.db.QueryRowContext(ctx, "SELECT id FROM categories WHERE name = ?", item.Category).Scan(&categoryID)
+	if err == sql.ErrNoRows {
+		// カテゴリが存在しない場合 -> 新規作成
+		res, err := i.db.ExecContext(ctx, "INSERT INTO categories (name) VALUES (?)", item.Category)
+		if err != nil {
+			return err
+		}
+		lastID, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		categoryID = int(lastID)
+	} else if err != nil {
+		return err
+	}
 
+	// items テーブルに新しいデータを挿入
+	_, err = i.db.ExecContext(ctx, "INSERT INTO items (name, category_id, image_name) VALUES (?, ?, ?)", item.Name, categoryID, item.Image)
 	return err
 }
 
@@ -85,7 +103,12 @@ func StoreImage(fileName string, image []byte) error {
 }
 
 func (i *itemRepository) SearchItems(ctx context.Context, keyword string) ([]*Item, error) {
-	query := "SELECT id, name, category, image_name FROM items WHERE name LIKE ?"
+	query := `
+        SELECT items.id, items.name, categories.name, items.image_name 
+        FROM items 
+        JOIN categories ON items.category_id = categories.id
+        WHERE items.name LIKE ?
+    `
 	rows, err := i.db.QueryContext(ctx, query, "%"+keyword+"%")
 	if err != nil {
 		return nil, err
