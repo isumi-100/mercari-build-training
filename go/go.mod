@@ -9,7 +9,10 @@ require (
 	go.uber.org/mock v0.5.0
 )
 
+require github.com/mattn/go-sqlite3 v1.14.24
+
 require (
+	// indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/tools v0.22.0 // indirect
