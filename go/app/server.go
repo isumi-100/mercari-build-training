@@ -52,6 +52,7 @@ func (s Server) Run() int {
 	mux.HandleFunc("GET /items", h.GetItems)
 	mux.HandleFunc("GET /items/{item_id}", h.GetItem)
 	mux.HandleFunc("GET /images/{filename}", h.GetImage)
+	mux.HandleFunc("GET /search", h.Search)
 
 	// start the server
 	slog.Info("http server started on", "port", s.Port)
@@ -232,6 +233,8 @@ func (s *Handlers) storeImage(image []byte) (filePath string, err error) {
 	hashSum := hex.EncodeToString(hasher.Sum(nil)) // ハッシュ値を16進文字列に変換
 	// - build image file path
 	fileName := fmt.Sprintf("%s.jpg", hashSum)
+	// fmt.Println("Generated fileName:", fileName)
+
 	filePath = filepath.Join(s.imgDirPath, fileName)
 	// - check if the image already exists
 	if _, err := os.Stat(filePath); err == nil {
@@ -249,6 +252,8 @@ func (s *Handlers) storeImage(image []byte) (filePath string, err error) {
 		return "", fmt.Errorf("failed to write image file: %w", err)
 	}
 	// - return the image file path
+	// fmt.Println("Generated fileName:", fileName)
+
 	return fileName, nil
 }
 
@@ -261,12 +266,10 @@ func parseGetImageRequest(r *http.Request) (*GetImageRequest, error) {
 	req := &GetImageRequest{
 		FileName: r.PathValue("filename"), // from path parameter
 	}
-
 	// validate the request
 	if req.FileName == "" {
 		return nil, errors.New("filename is required")
 	}
-
 	return req, nil
 }
 
@@ -319,4 +322,25 @@ func (s *Handlers) buildImagePath(imageFileName string) (string, error) {
 	}
 
 	return imgPath, nil
+}
+
+// 指定されたキーワードを含む商品を検索するエンドポイント
+func (s *Handlers) Search(w http.ResponseWriter, r *http.Request) {
+	// クエリパラメータから keyword を取得
+	keyword := r.URL.Query().Get("keyword")
+	if keyword == "" {
+		http.Error(w, "keyword is required", http.StatusBadRequest)
+		return
+	}
+
+	// データベースで商品を検索
+	items, err := s.itemRepo.SearchItems(r.Context(), keyword)
+	if err != nil {
+		http.Error(w, "failed to search items", http.StatusInternalServerError)
+		return
+	}
+
+	// JSONレスポンスを返す
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"items": items})
 }

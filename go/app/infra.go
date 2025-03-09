@@ -2,12 +2,16 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	// "encoding/json"
+	"database/sql"
 	"errors"
-	"io"
+	"log"
 	"os"
+
+	// "net/http"
+
 	// STEP 5-1: uncomment this line
-	// _ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var errImageNotFound = errors.New("image not found")
@@ -26,61 +30,69 @@ type Item struct {
 type ItemRepository interface {
 	Insert(ctx context.Context, item *Item) error
 	LoadItems(ctx context.Context) ([]*Item, error)
+	SearchItems(ctx context.Context, keyword string) ([]*Item, error)
 }
 
 // itemRepository is an implementation of ItemRepository
 type itemRepository struct {
 	// fileName is the path to the JSON file storing items.
-	fileName string
+	// fileName string
+	db *sql.DB
 }
 
 // NewItemRepository creates a new itemRepository.
 func NewItemRepository() ItemRepository {
-	return &itemRepository{fileName: "items.json"}
+	db, err := sql.Open("sqlite3", "db/mercari.sqlite3")
+	if err != nil {
+		log.Fatal(err)
+	}
+	return &itemRepository{db: db}
 }
 func (i *itemRepository) LoadItems(ctx context.Context) ([]*Item, error) {
-	file, err := os.OpenFile(i.fileName, os.O_RDWR|os.O_CREATE, 0644)
+	query := `
+        SELECT items.id, items.name, categories.name, items.image_name 
+        FROM items 
+        JOIN categories ON items.category_id = categories.id
+    `
+	rows, err := i.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer rows.Close()
 
-	var wrapper ItemsWrapper
-	err = json.NewDecoder(file).Decode(&wrapper)
-	if err == io.EOF {
-		return []*Item{}, nil // 空の配列を返す
-	} else if err != nil {
-		return nil, err
-	}
-	// []Item → []*Item に変換
-	items := make([]*Item, len(wrapper.Items))
-	for idx, item := range wrapper.Items {
-		items[idx] = &item
+	var items []*Item
+	for rows.Next() {
+		var item Item
+		if err := rows.Scan(&item.ID, &item.Name, &item.Category, &item.Image); err != nil {
+			return nil, err
+		}
+		items = append(items, &item)
 	}
 
 	return items, nil
 }
-
-func (i *itemRepository) storeItems(items []*Item) error {
-	file, err := os.Create(i.fileName)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(items)
-}
 // Insert inserts an item into the repository.
 func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
-	// STEP 4-1: add an implementation to store an item
-	items, err := i.LoadItems(ctx)
-	if err != nil {
+	var categoryID int
+	err := i.db.QueryRowContext(ctx, "SELECT id FROM categories WHERE name = ?", item.Category).Scan(&categoryID)
+	if err == sql.ErrNoRows {
+		// カテゴリが存在しない場合 -> 新規作成
+		res, err := i.db.ExecContext(ctx, "INSERT INTO categories (name) VALUES (?)", item.Category)
+		if err != nil {
+			return err
+		}
+		lastID, err := res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		categoryID = int(lastID)
+	} else if err != nil {
 		return err
 	}
-	items = append(items, item)
-	return i.storeItems(items)
+
+	// items テーブルに新しいデータを挿入
+	_, err = i.db.ExecContext(ctx, "INSERT INTO items (name, category_id, image_name) VALUES (?, ?, ?)", item.Name, categoryID, item.Image)
+	return err
 }
 
 // StoreImage stores an image and returns an error if any.
@@ -88,4 +100,28 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 func StoreImage(fileName string, image []byte) error {
 	// STEP 4-4: add an implementation to store an image
 	return os.WriteFile(fileName, image, 0644)
+}
+
+func (i *itemRepository) SearchItems(ctx context.Context, keyword string) ([]*Item, error) {
+	query := `
+        SELECT items.id, items.name, categories.name, items.image_name 
+        FROM items 
+        JOIN categories ON items.category_id = categories.id
+        WHERE items.name LIKE ?
+    `
+	rows, err := i.db.QueryContext(ctx, query, "%"+keyword+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*Item
+	for rows.Next() {
+		var item Item
+		if err := rows.Scan(&item.ID, &item.Name, &item.Category, &item.Image); err != nil {
+			return nil, err
+		}
+		items = append(items, &item)
+	}
+	return items, nil
 }
