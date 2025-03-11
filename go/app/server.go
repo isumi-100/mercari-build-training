@@ -101,34 +101,44 @@ type AddItemResponse struct {
 
 // parseAddItemRequest parses and validates the request to add an item.
 func parseAddItemRequest(r *http.Request) (*AddItemRequest, error) {
-	req := &AddItemRequest{
-		Name: r.FormValue("name"),
-		// STEP 4-2: add a category field
-		Category: r.FormValue("category"),
-	}
-	// STEP 4-4: add an image field
-	file, _, err := r.FormFile("image")
-	if err != nil {
-		return nil, errors.New("image is required")
-	}
-	defer file.Close()
+    if err := r.ParseMultipartForm(32 << 20); err != nil {
+        return nil, err
+    }
 
-	// validate the request
-	if req.Name == "" {
-		return nil, errors.New("name is required")
-	}
+    name := r.FormValue("name")
+    category := r.FormValue("category")
+    file, _, err := r.FormFile("image")
+    if err != nil && err != http.ErrMissingFile {
+        return nil, err
+    }
+    defer func() {
+        if file != nil {
+            file.Close()
+        }
+    }()
 
-	// STEP 4-2: validate the category field
-	if req.Category == "" {
-		return nil, errors.New("category is required")
-	}
-	// STEP 4-4: validate the image field
-	imageData, err := io.ReadAll(file)
-	if err != nil {
-		return nil, errors.New("failed to read image data")
-	}
-	req.Image = imageData
-	return req, nil
+    if name == "" || category == "" {
+        return nil, errors.New("name and category are required")
+    }
+
+    if file == nil {
+        return &AddItemRequest{
+            Name:     name,
+            Category: category,
+            Image:    nil, // 画像データが空の場合は nil を設定
+        }, nil
+    }
+
+    image, err := io.ReadAll(file)
+    if err != nil {
+        return nil, err
+    }
+
+    return &AddItemRequest{
+        Name:     name,
+        Category: category,
+        Image:    image,
+    }, nil
 }
 
 // AddItem is a handler to add a new item for POST /items .
@@ -139,7 +149,6 @@ func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
 	// STEP 4-4: uncomment on adding an implementation to store an image
 	fileName, err := s.storeImage(req.Image)
 	slog.Info("Stored image", "fileName", fileName)
@@ -148,7 +157,7 @@ func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	items := &Item{
+	item := &Item{
 		Name: req.Name,
 		// STEP 4-2: add a category field
 		Category: req.Category,
@@ -156,20 +165,27 @@ func (s *Handlers) AddItem(w http.ResponseWriter, r *http.Request) {
 		Image: fileName,
 	}
 	// データベースに保存
-	err = s.itemRepo.Insert(ctx, items)
+	err = s.itemRepo.Insert(ctx, item)
 	if err != nil {
     	slog.Error("failed to store item", "error", err)
-    	http.Error(w, err.Error(), http.StatusInternalServerError)
+    	http.Error(w, "Failed to insert item", http.StatusInternalServerError) // 500を返す
     	return
 	}
 
 	// レスポンスを送信
 	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(items)
+	err = json.NewEncoder(w).Encode(item)
 	if err != nil {
     	slog.Error("failed to encode response", "error", err)
     	http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	// // レスポンスボディにもアイテム名とカテゴリを追加
+	// _, err = w.Write([]byte("Item Name: " + req.Name + ", Category: " + req.Category))
+	// if err != nil {
+	// 	slog.Error("failed to write response body", "error", err)
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// }
 }
 // GetItems is a handler to return a list of items for GET /items.
 func (s *Handlers) GetItems(w http.ResponseWriter, r *http.Request) {
