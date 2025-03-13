@@ -50,7 +50,7 @@ func NewItemRepository() ItemRepository {
 }
 func (i *itemRepository) LoadItems(ctx context.Context) ([]*Item, error) {
 	query := `
-        SELECT items.id, items.name, categories.name, items.image_name 
+        SELECT items.id, items.name, categories.name, items.image 
         FROM items 
         JOIN categories ON items.category_id = categories.id
     `
@@ -91,7 +91,7 @@ func (i *itemRepository) Insert(ctx context.Context, item *Item) error {
 	}
 
 	// items テーブルに新しいデータを挿入
-	_, err = i.db.ExecContext(ctx, "INSERT INTO items (name, category_id, image_name) VALUES (?, ?, ?)", item.Name, categoryID, item.Image)
+	_, err = i.db.ExecContext(ctx, "INSERT INTO items (name, category_id, image) VALUES (?, ?, ?)", item.Name, categoryID, item.Image)
 	return err
 }
 
@@ -104,7 +104,7 @@ func StoreImage(fileName string, image []byte) error {
 
 func (i *itemRepository) SearchItems(ctx context.Context, keyword string) ([]*Item, error) {
 	query := `
-        SELECT items.id, items.name, categories.name, items.image_name 
+        SELECT items.id, items.name, categories.name, items.image 
         FROM items 
         JOIN categories ON items.category_id = categories.id
         WHERE items.name LIKE ?
